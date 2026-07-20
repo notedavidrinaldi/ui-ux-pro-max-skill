@@ -18,12 +18,12 @@ CSV_CONFIG = {
     "style": {
         "file": "styles.csv",
         "search_cols": ["Style Category", "Keywords", "Best For", "Type", "AI Prompt Keywords"],
-        "output_cols": ["Style Category", "Type", "Keywords", "Primary Colors", "Effects & Animation", "Best For", "Light Mode ✓", "Dark Mode ✓", "Performance", "Accessibility", "Framework Compatibility", "Complexity", "AI Prompt Keywords", "CSS/Technical Keywords", "Implementation Checklist", "Design System Variables", "rtl_level", "rtl_compatible"]
+        "output_cols": ["Style Category", "Type", "Keywords", "Primary Colors", "Effects & Animation", "Best For", "Light Mode ✓", "Dark Mode ✓", "Performance", "Accessibility", "Framework Compatibility", "Complexity", "AI Prompt Keywords", "CSS/Technical Keywords", "Implementation Checklist", "Design System Variables", "rtl_level"]
     },
     "color": {
         "file": "colors.csv",
         "search_cols": ["Product Type", "Notes"],
-        "output_cols": ["Product Type", "Primary", "On Primary", "Secondary", "On Secondary", "Accent", "On Accent", "Background", "Foreground", "Card", "Card Foreground", "Muted", "Muted Foreground", "Border", "Destructive", "On Destructive", "Ring", "Notes", "rtl_level", "rtl_compatible"]
+        "output_cols": ["Product Type", "Primary", "On Primary", "Secondary", "On Secondary", "Accent", "On Accent", "Background", "Foreground", "Card", "Card Foreground", "Muted", "Muted Foreground", "Border", "Destructive", "On Destructive", "Ring", "Notes", "rtl_level"]
     },
     "chart": {
         "file": "charts.csv",
@@ -38,7 +38,7 @@ CSV_CONFIG = {
     "product": {
         "file": "products.csv",
         "search_cols": ["Product Type", "Keywords", "Primary Style Recommendation", "Key Considerations"],
-        "output_cols": ["Product Type", "Keywords", "Primary Style Recommendation", "Secondary Styles", "Landing Page Pattern", "Dashboard Style (if applicable)", "Color Palette Focus", "rtl_level", "rtl_compatible"]
+        "output_cols": ["Product Type", "Keywords", "Primary Style Recommendation", "Secondary Styles", "Landing Page Pattern", "Dashboard Style (if applicable)", "Color Palette Focus", "rtl_level"]
     },
     "ux": {
         "file": "ux-guidelines.csv",
@@ -77,6 +77,14 @@ CSV_CONFIG = {
     }
 }
 
+# Output columns whose content (code samples, checklists) must never be
+# hard-truncated for display -- truncating mid-snippet destroys the value.
+UNTRUNCATED_COLS = {
+    "Code Example Good", "Code Example Bad", "Code Good", "Code Bad",
+    "Implementation Checklist", "Design System Variables", "CSS Import",
+    "Tailwind Config", "GSAP Snippet",
+}
+
 STACK_CONFIG = {
     "react":            {"file": "stacks/react.csv"},
     "nextjs":           {"file": "stacks/nextjs.csv"},
@@ -110,7 +118,8 @@ _STACK_COLS = {
 
 AVAILABLE_STACKS = list(STACK_CONFIG.keys())
 
-_RTL_LEVEL_LABELS = {"full", "partial", "caveats"}
+RTL_LEVELS = ("full", "partial", "caveats")
+RTL_DOMAINS = frozenset({"style", "color", "product"})
 _RTL_LEVEL_ALIASES = {
     "full": "full",
     "partial": "partial",
@@ -132,6 +141,44 @@ _RTL_LEVEL_ALIASES = {
 }
 
 
+# ============ TOKENIZATION ============
+# Common two-letter/three-letter words that add noise without adding search
+# signal. Deliberately short -- domain-relevant short tokens (ui, ux, ai,
+# css, 3d, js, os, md, gsap) must stay searchable, which is why we don't
+# filter purely by length.
+_STOPWORDS = {
+    "to", "in", "on", "at", "is", "of", "by", "or", "an", "if", "no", "so",
+    "do", "be", "we", "it", "as", "the", "and", "for", "are", "was",
+}
+
+# Query/corpus normalization so common spelling variants match each other.
+# Keep this a plain dict (stdlib only, no fuzzy-matching dependency).
+_SYNONYMS = {
+    "e-commerce": "ecommerce",
+    "dark-mode": "dark",
+    "darkmode": "dark",
+    "light-mode": "light",
+    "lightmode": "light",
+    "a11y": "accessibility",
+    "nav": "navigation",
+    "sign-up": "signup",
+    "log-in": "login",
+    "colour": "color",
+    "colours": "colors",
+    "customisation": "customization",
+    "organisation": "organization",
+    "behaviour": "behavior",
+    "ux/ui": "ux ui",
+}
+
+
+def _normalize(text):
+    """Apply synonym substitution before tokenizing."""
+    for variant, canonical in _SYNONYMS.items():
+        text = text.replace(variant, canonical)
+    return text
+
+
 # ============ BM25 IMPLEMENTATION ============
 class BM25:
     """BM25 ranking algorithm for text search"""
@@ -145,11 +192,13 @@ class BM25:
         self.idf = {}
         self.doc_freqs = defaultdict(int)
         self.N = 0
+        self._term_freqs = []  # precomputed per-doc term frequencies
 
     def tokenize(self, text):
-        """Lowercase, split, remove punctuation, filter short words"""
-        text = re.sub(r'[^\w\s]', ' ', str(text).lower())
-        return [w for w in text.split() if len(w) >= 2]
+        """Lowercase, normalize synonyms, split, remove punctuation, filter stopwords"""
+        text = _normalize(str(text).lower())
+        text = re.sub(r'[^\w\s]', ' ', text)
+        return [w for w in text.split() if len(w) >= 2 and w not in _STOPWORDS]
 
     def fit(self, documents):
         """Build BM25 index from documents"""
@@ -160,12 +209,14 @@ class BM25:
         self.doc_lengths = [len(doc) for doc in self.corpus]
         self.avgdl = sum(self.doc_lengths) / self.N
 
+        self._term_freqs = []
         for doc in self.corpus:
-            seen = set()
+            tf = defaultdict(int)
             for word in doc:
-                if word not in seen:
-                    self.doc_freqs[word] += 1
-                    seen.add(word)
+                tf[word] += 1
+            self._term_freqs.append(tf)
+            for word in tf:
+                self.doc_freqs[word] += 1
 
         for word, freq in self.doc_freqs.items():
             self.idf[word] = log((self.N - freq + 0.5) / (freq + 0.5) + 1)
@@ -175,16 +226,14 @@ class BM25:
         query_tokens = self.tokenize(query)
         scores = []
 
-        for idx, doc in enumerate(self.corpus):
+        for idx in range(self.N):
             score = 0
             doc_len = self.doc_lengths[idx]
-            term_freqs = defaultdict(int)
-            for word in doc:
-                term_freqs[word] += 1
+            term_freqs = self._term_freqs[idx]
 
             for token in query_tokens:
                 if token in self.idf:
-                    tf = term_freqs[token]
+                    tf = term_freqs.get(token, 0)
                     idf = self.idf[token]
                     numerator = tf * (self.k1 + 1)
                     denominator = tf + self.k1 * (1 - self.b + self.b * doc_len / self.avgdl)
@@ -194,91 +243,199 @@ class BM25:
 
         return sorted(scores, key=lambda x: x[1], reverse=True)
 
+    def vocabulary(self):
+        """All indexed terms, for suggestion/typo-recovery purposes."""
+        return list(self.idf.keys())
+
+
+# ============ CSV / INDEX CACHE ============
+# Data files are small and reused across multiple domain searches within a
+# single --design-system run; avoid re-reading + re-indexing the same file
+# repeatedly in one process.
+_csv_cache = {}   # filepath -> (mtime, rows)
+_bm25_cache = {}  # (filepath, tuple(search_cols)) -> (mtime, BM25 instance)
+
+
+def _load_csv(filepath):
+    """Load CSV and return list of dicts, with mtime-based caching."""
+    mtime = filepath.stat().st_mtime
+    cached = _csv_cache.get(filepath)
+    if cached and cached[0] == mtime:
+        return cached[1]
+
+    with open(filepath, 'r', encoding='utf-8') as f:
+        rows = list(csv.DictReader(f))
+
+    _csv_cache[filepath] = (mtime, rows)
+    return rows
+
+
+def _get_bm25(filepath, search_cols, data):
+    """Fitted BM25 index for this file+columns, with mtime-based caching."""
+    key = (filepath, tuple(search_cols))
+    mtime = filepath.stat().st_mtime
+    cached = _bm25_cache.get(key)
+    if cached and cached[0] == mtime:
+        return cached[1]
+
+    documents = [" ".join(str(row.get(col, "")) for col in search_cols) for row in data]
+    bm25 = BM25()
+    bm25.fit(documents)
+    _bm25_cache[key] = (mtime, bm25)
+    return bm25
+
 
 # ============ SEARCH FUNCTIONS ============
-def _load_csv(filepath):
-    """Load CSV and return list of dicts"""
-    with open(filepath, 'r', encoding='utf-8') as f:
-        return list(csv.DictReader(f))
-
-
 def _normalize_rtl_level(value) -> str:
-    """Normalize legacy or modern RTL metadata into a known level."""
+    """Normalize modern and legacy RTL metadata into a known level."""
     if value is None:
         return ""
-
-    raw = str(value).strip().lower()
-    if not raw:
-        return ""
-
-    return _RTL_LEVEL_ALIASES.get(raw, "")
+    return _RTL_LEVEL_ALIASES.get(str(value).strip().lower(), "")
 
 
 def _resolve_rtl_level(row: dict) -> str:
-    """Return rtl_level with backward-compatible fallback."""
+    """Resolve rtl_level, falling back to the legacy boolean column."""
     level = _normalize_rtl_level(row.get("rtl_level"))
-    if level in _RTL_LEVEL_LABELS:
+    if level in RTL_LEVELS:
         return level
 
     legacy = _normalize_rtl_level(row.get("rtl_compatible"))
-    if legacy in _RTL_LEVEL_LABELS:
+    if legacy in RTL_LEVELS:
         return legacy
-
-    # Keep old behavior where missing value defaults to true/compatible.
-    if not row.get("rtl_compatible") and not row.get("rtl_level"):
-        return "full"
-
     if legacy == "none":
         return ""
 
-    return "full"
+    # Pre-RTL datasets had neither field and historically remained eligible.
+    if not row.get("rtl_level") and not row.get("rtl_compatible"):
+        return "full"
+    return ""
 
 
-def _is_rtl_compatible(row: dict) -> bool:
-    """Return True when a dataset row supports RTL-compatible rendering."""
+def _normalize_rtl_filter(value):
+    """Normalize a CLI/API RTL selector to all/full/partial/caveats."""
+    if value is None or value is False:
+        return None
+    if value is True:
+        return "all"
+
+    normalized = str(value).strip().lower()
+    if normalized == "all" or normalized in RTL_LEVELS:
+        return normalized
+    raise ValueError(
+        f"Unknown RTL level '{value}'. Expected one of: all, {', '.join(RTL_LEVELS)}"
+    )
+
+
+def _matches_rtl_filter(row: dict, rtl_filter) -> bool:
+    if rtl_filter is None:
+        return True
     level = _resolve_rtl_level(row)
-    return level in {"full", "partial", "caveats"}
+    if rtl_filter == "all":
+        return level in RTL_LEVELS
+    return level == rtl_filter
 
 
-def _search_csv(filepath, search_cols, output_cols, query, max_results, rtl_only=False):
-    """Core search function using BM25"""
+def _search_csv(filepath, search_cols, output_cols, query, max_results, rtl=None):
+    """Core search function using BM25. Returns (results, bm25_or_none)."""
     if not filepath.exists():
-        return []
+        return [], None
 
-    data = _load_csv(filepath)
+    try:
+        data = _load_csv(filepath)
+    except (csv.Error, OSError, UnicodeDecodeError) as e:
+        return [{"_error": f"Failed to read {filepath.name}: {e}"}], None
 
-    # Build documents from search columns
-    documents = [" ".join(str(row.get(col, "")) for col in search_cols) for row in data]
+    if not data:
+        return [], None
 
-    # BM25 search
-    bm25 = BM25()
-    bm25.fit(documents)
+    bm25 = _get_bm25(filepath, search_cols, data)
     ranked = bm25.score(query)
 
-    # Get top results with score > 0
+    rtl_filter = _normalize_rtl_filter(rtl)
     results = []
-    for idx, score in ranked[:max_results]:
-        if score > 0:
-            row = data[idx]
-            if rtl_only and not _is_rtl_compatible(row):
-                continue
-            result = {col: row.get(col, "") for col in output_cols if col in row}
-            if "rtl_level" in output_cols and "rtl_level" not in result:
-                result["rtl_level"] = _resolve_rtl_level(row)
-            results.append(result)
+    for idx, score in ranked:
+        if score <= 0:
+            continue
 
-    return results
+        row = data[idx]
+        if not _matches_rtl_filter(row, rtl_filter):
+            continue
+
+        result = {col: row.get(col, "") for col in output_cols if col in row}
+        if "rtl_level" in output_cols:
+            result["rtl_level"] = _resolve_rtl_level(row)
+        results.append(result)
+        if len(results) >= max_results:
+            break
+
+    return results, bm25
 
 
-def detect_domain(query):
-    """Auto-detect the most relevant domain from query"""
-    query_lower = query.lower()
+def _suggest_terms(bm25, query, limit=6):
+    """Nearest known vocabulary terms for a query that returned 0 hits,
+    so the caller can retry instead of silently reporting nothing."""
+    if bm25 is None:
+        return []
+    query_tokens = set(bm25.tokenize(query))
+    if not query_tokens:
+        return []
 
-    domain_keywords = {
+    candidates = []
+    for term in bm25.vocabulary():
+        for qt in query_tokens:
+            if term.startswith(qt[:3]) or qt.startswith(term[:3]):
+                candidates.append(term)
+                break
+
+    # Stable de-dup, most frequent terms first (doc_freqs available via idf keys only,
+    # so just de-dup preserving discovery order).
+    seen = set()
+    ordered = []
+    for term in candidates:
+        if term not in seen:
+            seen.add(term)
+            ordered.append(term)
+    return ordered[:limit]
+
+
+# Load the product-domain keyword list from products.csv at import time so
+# it stays in sync with the data instead of needing manual updates to a
+# hardcoded list. Falls back to a small built-in seed if the file is
+# missing (e.g. package built without data/).
+def _load_product_keywords():
+    seed = ["saas", "ecommerce", "e-commerce", "fintech", "healthcare", "gaming",
+            "portfolio", "crypto", "dashboard", "fitness", "marketplace"]
+    filepath = DATA_DIR / CSV_CONFIG["product"]["file"]
+    if not filepath.exists():
+        return seed
+    try:
+        rows = _load_csv(filepath)
+    except (csv.Error, OSError, UnicodeDecodeError):
+        return seed
+
+    keywords = set(seed)
+    for row in rows:
+        raw = row.get("Keywords", "")
+        for kw in re.split(r"[,;]", raw):
+            kw = kw.strip().lower()
+            if kw and len(kw) >= 3:
+                keywords.add(kw)
+    return sorted(keywords, key=len, reverse=True)
+
+
+_DOMAIN_KEYWORDS = None
+
+
+def _domain_keywords():
+    global _DOMAIN_KEYWORDS
+    if _DOMAIN_KEYWORDS is not None:
+        return _DOMAIN_KEYWORDS
+
+    _DOMAIN_KEYWORDS = {
         "color": ["color", "palette", "hex", "#", "rgb", "token", "semantic", "accent", "destructive", "muted", "foreground"],
         "chart": ["chart", "graph", "visualization", "trend", "bar", "pie", "scatter", "heatmap", "funnel"],
         "landing": ["landing", "page", "cta", "conversion", "hero", "testimonial", "pricing", "section"],
-        "product": ["saas", "ecommerce", "e-commerce", "fintech", "healthcare", "gaming", "portfolio", "crypto", "dashboard", "fitness", "restaurant", "hotel", "travel", "music", "education", "learning", "legal", "insurance", "medical", "beauty", "pharmacy", "dental", "pet", "dating", "wedding", "recipe", "delivery", "ride", "booking", "calendar", "timer", "tracker", "diary", "note", "chat", "messenger", "crm", "invoice", "parking", "transit", "vpn", "alarm", "weather", "sleep", "meditation", "fasting", "habit", "grocery", "meme", "wardrobe", "plant care", "reading", "flashcard", "puzzle", "trivia", "arcade", "photography", "streaming", "podcast", "newsletter", "marketplace", "freelancer", "coworking", "airline", "museum", "theater", "church", "non-profit", "charity", "kindergarten", "daycare", "senior care", "veterinary", "florist", "bakery", "brewery", "construction", "automotive", "real estate", "logistics", "agriculture", "coding bootcamp"],
+        "product": _load_product_keywords(),
         "style": ["style", "design", "ui", "minimalism", "glassmorphism", "neumorphism", "brutalism", "dark mode", "flat", "aurora", "prompt", "css", "implementation", "variable", "checklist", "tailwind"],
         "ux": ["ux", "usability", "accessibility", "wcag", "touch", "scroll", "animation", "keyboard", "navigation", "mobile"],
         "typography": ["font pairing", "typography pairing", "heading font", "body font"],
@@ -288,16 +445,65 @@ def detect_domain(query):
         "react": ["react", "next.js", "nextjs", "suspense", "memo", "usecallback", "useeffect", "rerender", "bundle", "waterfall", "barrel", "dynamic import", "rsc", "server component"],
         "web": ["aria", "focus", "outline", "semantic", "virtualize", "autocomplete", "form", "input type", "preconnect"]
     }
-
-    scores = {domain: sum(1 for kw in keywords if re.search(r'\b' + re.escape(kw) + r'\b', query_lower)) for domain, keywords in domain_keywords.items()}
-    best = max(scores, key=scores.get)
-    return best if scores[best] > 0 else "style"
+    return _DOMAIN_KEYWORDS
 
 
-def search(query, domain=None, max_results=MAX_RESULTS, rtl_only=False):
+# Domains checked in this fixed order when scores tie, so results are
+# deterministic instead of depending on dict/hash ordering.
+_DOMAIN_TIEBREAK_ORDER = [
+    "ux", "product", "style", "color", "typography", "google-fonts",
+    "chart", "landing", "icons", "gsap", "react", "web",
+]
+
+
+def detect_domain(query, return_scores=False):
+    """Auto-detect the most relevant domain from query.
+
+    Matches are weighted by keyword length (multi-word/longer phrases are
+    more specific and score higher than short generic words). Ties are
+    broken by a fixed domain priority order, not dict/insertion order.
+    """
+    query_lower = query.lower()
+    domain_keywords = _domain_keywords()
+
+    scores = {}
+    for domain, keywords in domain_keywords.items():
+        total = 0.0
+        for kw in keywords:
+            if re.search(r'\b' + re.escape(kw) + r'\b', query_lower):
+                # weight = 1 point per word in the keyword phrase
+                total += max(1, len(kw.split()))
+        scores[domain] = total
+
+    ranked = sorted(
+        scores.items(),
+        key=lambda item: (item[1], -_DOMAIN_TIEBREAK_ORDER.index(item[0])
+                           if item[0] in _DOMAIN_TIEBREAK_ORDER else -999),
+        reverse=True,
+    )
+    best_domain, best_score = ranked[0]
+    result = best_domain if best_score > 0 else "style"
+
+    if return_scores:
+        runner_up = ranked[1][0] if len(ranked) > 1 and ranked[1][1] > 0 else None
+        return result, runner_up
+    return result
+
+
+def search(query, domain=None, max_results=MAX_RESULTS, rtl=None):
     """Main search function with auto-domain detection"""
+    auto_detected = domain is None
+    runner_up = None
     if domain is None:
-        domain = detect_domain(query)
+        domain, runner_up = detect_domain(query, return_scores=True)
+
+    rtl_filter = _normalize_rtl_filter(rtl)
+    if rtl_filter is not None and domain not in RTL_DOMAINS:
+        supported = ", ".join(sorted(RTL_DOMAINS))
+        return {
+            "error": f"RTL filtering is only supported for these domains: {supported}",
+            "domain": domain,
+        }
 
     config = CSV_CONFIG.get(domain, CSV_CONFIG["style"])
     filepath = DATA_DIR / config["file"]
@@ -305,22 +511,29 @@ def search(query, domain=None, max_results=MAX_RESULTS, rtl_only=False):
     if not filepath.exists():
         return {"error": f"File not found: {filepath}", "domain": domain}
 
-    results = _search_csv(
+    results, bm25 = _search_csv(
         filepath,
         config["search_cols"],
         config["output_cols"],
         query,
         max_results,
-        rtl_only=rtl_only,
+        rtl=rtl_filter,
     )
 
-    return {
+    out = {
         "domain": domain,
         "query": query,
         "file": config["file"],
         "count": len(results),
-        "results": results
+        "results": results,
     }
+    if auto_detected:
+        out["auto_detected"] = True
+        if runner_up:
+            out["runner_up_domain"] = runner_up
+    if not results:
+        out["suggestions"] = _suggest_terms(bm25, query)
+    return out
 
 
 def search_stack(query, stack, max_results=MAX_RESULTS):
@@ -333,13 +546,16 @@ def search_stack(query, stack, max_results=MAX_RESULTS):
     if not filepath.exists():
         return {"error": f"Stack file not found: {filepath}", "stack": stack}
 
-    results = _search_csv(filepath, _STACK_COLS["search_cols"], _STACK_COLS["output_cols"], query, max_results)
+    results, bm25 = _search_csv(filepath, _STACK_COLS["search_cols"], _STACK_COLS["output_cols"], query, max_results)
 
-    return {
+    out = {
         "domain": "stack",
         "stack": stack,
         "query": query,
         "file": STACK_CONFIG[stack]["file"],
         "count": len(results),
-        "results": results
+        "results": results,
     }
+    if not results:
+        out["suggestions"] = _suggest_terms(bm25, query)
+    return out
