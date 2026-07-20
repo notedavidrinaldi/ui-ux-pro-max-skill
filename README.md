@@ -8,7 +8,7 @@
 <p align="center">
   <a href="https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/releases"><img src="https://img.shields.io/github/v/release/nextlevelbuilder/ui-ux-pro-max-skill?style=for-the-badge&color=blue" alt="GitHub Release"></a>
   <img src="https://img.shields.io/badge/reasoning_rules-161-green?style=for-the-badge" alt="161 Reasoning Rules">
-  <img src="https://img.shields.io/badge/UI_styles-67-purple?style=for-the-badge" alt="67 UI Styles">
+  <img src="https://img.shields.io/badge/UI_styles-84-purple?style=for-the-badge" alt="84 UI Styles">
   <img src="https://img.shields.io/badge/python-3.x-yellow?style=for-the-badge&logo=python&logoColor=white" alt="Python 3.x">
   <a href="https://github.com/nextlevelbuilder/ui-ux-pro-max-skill/blob/main/LICENSE"><img src="https://img.shields.io/github/license/nextlevelbuilder/ui-ux-pro-max-skill?style=for-the-badge&color=green" alt="License"></a>
 </p>
@@ -106,11 +106,11 @@ The flagship feature of v2.0 is the **Design System Generator** - an AI-powered 
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  2. MULTI-DOMAIN SEARCH (5 parallel searches)                   │
-│     • Product type matching (161 categories)                    │
-│     • Style recommendations (67 styles)                         │
-│     • Color palette selection (161 palettes)                    │
-│     • Landing page patterns (24 patterns)                       │
-│     • Typography pairing (57 font combinations)                 │
+│     • Product type matching (192 categories)                    │
+│     • Style recommendations (84 styles)                         │
+│     • Color palette selection (192 palettes)                    │
+│     • Landing page patterns (34 patterns)                       │
+│     • Typography pairing (74 font combinations)                 │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -155,12 +155,12 @@ Each rule includes:
 
 ## Features
 
-- **67 UI Styles** - Glassmorphism, Claymorphism, Minimalism, Brutalism, Neumorphism, Bento Grid, Dark Mode, AI-Native UI, and more
-- **161 Color Palettes** - Industry-specific palettes aligned 1:1 with the 161 product types
-- **57 Font Pairings** - Curated typography combinations with Google Fonts imports
+- **84 UI Styles** - Glassmorphism, Claymorphism, Minimalism, Brutalism, Neumorphism, Bento Grid, Dark Mode, AI-Native UI, and more
+- **192 Color Palettes** - Industry-specific palettes aligned 1:1 with the 192 product types
+- **74 Font Pairings** - Curated typography combinations with Google Fonts imports
 - **25 Chart Types** - Recommendations for dashboards and analytics
 - **22 Tech Stacks** - React, Next.js, Astro, Vue, Nuxt.js, Nuxt UI, Svelte, SwiftUI, React Native, Flutter, HTML+Tailwind, shadcn/ui, Jetpack Compose, Angular, Laravel, Three.js, JavaFX, WPF, WinUI 3, UWP, Avalonia, Uno Platform
-- **99 UX Guidelines** - Best practices, anti-patterns, and accessibility rules
+- **98 UX Guidelines** - Best practices, anti-patterns, and accessibility rules
 - **161 Reasoning Rules** - Industry-specific design system generation (NEW in v2.0)
 
 ### Available Styles (67)
@@ -262,9 +262,9 @@ Many users ask about the differences between the open-source and premium version
 
 ### 🟢 Basic Version (This Repository)
 * **Fully Open Source:** Perfect for individual developers, hobbyists, and standard projects.
-* **Core UI/UX Intelligence:** Full access to 67 UI styles, 161 product types, color palettes, and curated font pairings.
+* **Core UI/UX Intelligence:** Full access to 84 UI styles, 192 product types, color palettes, and curated font pairings.
 * **Smart Recommendations:** Built-in BM25 search engine for highly accurate design matching.
-* **Cross-Platform Support:** Stack-specific guidelines supporting 13+ major frameworks (React, Vue, Tailwind, iOS, Android, etc.).
+* **Cross-Platform Support:** Stack-specific guidelines supporting 22 major frameworks (React, Vue, Tailwind, iOS, Android, etc.).
 * **Design System Generation:** Instantly generate tailored UI rules, patterns, and logic via CLI.
 
 ### 🟡 Premium Version
@@ -314,6 +314,7 @@ uipro init --ai droid       # Droid (Factory)
 uipro init --ai kilocode    # KiloCode
 uipro init --ai warp        # Warp
 uipro init --ai augment     # Augment
+uipro init --ai codewhale   # CodeWhale
 uipro init --ai all         # All assistants
 ```
 
@@ -339,27 +340,21 @@ uipro uninstall --global    # Remove from global install
 
 ## Prerequisites
 
-Python 3.x is required for the search script.
+Python 3.x is required for the search script (standard library only — the scripts install nothing and make no network calls).
+
+Check if Python is installed:
 
 ```bash
-# Check if Python is installed
 python3 --version
-
-# macOS
-brew install python3
-
-# Ubuntu/Debian
-sudo apt update && sudo apt install python3
-
-# Windows
-winget install Python.Python.3.12
 ```
+
+If it is missing, install it yourself from [python.org](https://www.python.org/downloads/) or with your OS package manager (Homebrew, apt, winget). These install steps are for **you, the human user** — AI agents using this skill should never install software on your machine; they are instructed to ask you instead.
 
 ## Usage
 
 ### Skill Mode (Auto-activate)
 
-**Supported:** Claude Code, Cursor, Windsurf, Antigravity, Codex CLI, Continue, Gemini CLI, OpenCode, Qoder, CodeBuddy, Droid (Factory), KiloCode, Warp, Augment
+**Supported:** Claude Code, Cursor, Windsurf, Antigravity, Codex CLI, Continue, Gemini CLI, OpenCode, Qoder, CodeBuddy, Droid (Factory), KiloCode, Warp, Augment, CodeWhale
 
 The skill activates automatically when you request UI/UX work. Just chat naturally:
 
@@ -413,7 +408,7 @@ The skill provides stack-specific guidelines for:
 | **Angular** | Angular |
 | **PHP** | Laravel (Blade, Livewire, Inertia.js) |
 | **Other Web** | Svelte, Astro, Three.js |
-| **Desktop** | JavaFX |
+| **Desktop** | JavaFX, WPF, WinUI 3, Avalonia, Uno Platform, UWP |
 | **iOS** | SwiftUI |
 | **Android** | Jetpack Compose |
 | **Cross-Platform** | React Native, Flutter |
@@ -441,12 +436,8 @@ python3 .claude/skills/ui-ux-pro-max/scripts/search.py "dashboard" --domain char
 # RTL-aware design-system generation
 python3 .claude/skills/ui-ux-pro-max/scripts/search.py "Arabic e-commerce dashboard" --design-system --rtl -p "Ops Console"
 
-The `--rtl` mode now uses the `rtl_level` field for product/style/color entries.
-Supported levels:
-
-- `full` – native RTL-friendly
-- `partial` – needs minor RTL adjustments
-- `caveats` – usable with additional checks
+# Strict RTL filtering for a domain search
+python3 .claude/skills/ui-ux-pro-max/scripts/search.py "Arabic dashboard" --domain style --rtl=full
 
 # Stack-specific guidelines
 python3 .claude/skills/ui-ux-pro-max/scripts/search.py "form validation" --stack react
@@ -455,6 +446,13 @@ python3 .claude/skills/ui-ux-pro-max/scripts/search.py "tableview binding" --sta
 python3 .claude/skills/ui-ux-pro-max/scripts/search.py "atlantafx primer enterprise theme" --stack javafx
 python3 .claude/skills/ui-ux-pro-max/scripts/search.py "enterprise tableview density permission" --stack javafx
 ```
+
+The `--rtl` mode uses the `rtl_level` field for product/style/color entries.
+Use bare `--rtl` to include all compatible entries, or select one level:
+
+- `--rtl=full` – native RTL-friendly
+- `--rtl=partial` – needs minor RTL adjustments
+- `--rtl=caveats` – usable with additional checks
 
 ### Persist Design System (Master + Overrides Pattern)
 
@@ -610,31 +608,23 @@ Or wait for the next release where this is resolved.
 
 ### `npm install -g ui-ux-pro-max-cli` fails with permission error
 
-```bash
-# macOS/Linux — use a Node version manager (recommended) or sudo
-sudo npm install -g ui-ux-pro-max-cli
+Use a Node version manager (recommended), or skip the global install entirely:
 
-# Or use npx without installing globally
+```bash
+# npx without installing globally
 npx ui-ux-pro-max-cli init --ai claude
 ```
 
 ### Python not found when running design system commands
 
-The search scripts require Python 3.x. Install it for your OS:
-
-```bash
-brew install python3        # macOS
-sudo apt install python3    # Ubuntu/Debian
-winget install Python.Python.3.12  # Windows
-```
+The search scripts require Python 3.x. Install it manually from [python.org](https://www.python.org/downloads/) or with your OS package manager (Homebrew, apt, winget). AI agents should not install it for you — they are instructed to ask you instead.
 
 ### Design system output is cut off / fields truncated
 
-Use the `--max-length` flag to increase (or remove) the truncation limit:
+Human-readable output truncates long fields at 300 characters. Use `--json` to get the full, untruncated data:
 
 ```bash
-python3 .claude/skills/ui-ux-pro-max/scripts/search.py "SaaS" --domain style --max-length 0
-#                                                                               ^ 0 = unlimited
+python3 .claude/skills/ui-ux-pro-max/scripts/search.py "SaaS" --domain style --json
 ```
 
 ---

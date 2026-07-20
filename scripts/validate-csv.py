@@ -17,12 +17,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DATA_DIR = REPO_ROOT / "src" / "ui-ux-pro-max" / "data"
 
-# These files are retained as design/reference notes, not runtime datasets.
-# They intentionally use free-form CSV-ish content and are not loaded by core.py.
-REFERENCE_ONLY = {
-    DATA_DIR / "design.csv",
-    DATA_DIR / "draft.csv",
-}
+# Every CSV under data/ is a runtime dataset loaded by core.py.
+# (Former reference-only notes design.csv/draft.csv were removed: they were
+# unused by the runtime and contained prompt-shaped free-form text.)
+REFERENCE_ONLY: set[Path] = set()
 
 
 def validate_file(path: Path) -> list[str]:

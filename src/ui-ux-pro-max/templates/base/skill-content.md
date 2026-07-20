@@ -4,28 +4,15 @@
 {{QUICK_REFERENCE}}
 # Prerequisites
 
-Check if Python is installed:
+The bundled scripts require Python 3 (standard library only — no third-party packages, no network access). Check if it is available:
 
 ```bash
 python3 --version || python --version
 ```
 
-If Python is not installed, install it based on user's OS:
+If Python is not installed, **do not install it yourself**. Stop and ask the user to install Python 3 using their preferred method (e.g. from [python.org](https://www.python.org/downloads/) or their OS package manager), then continue once it is available. Never run package-manager or system-modifying commands (`sudo`, `brew`, `apt`, `winget`, etc.) on the user's machine for this skill.
 
-**macOS:**
-```bash
-brew install python3
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt update && sudo apt install python3
-```
-
-**Windows:**
-```powershell
-winget install Python.Python.3.12
-```
+If the user prefers not to install Python, skip the CLI searches and rely on the Quick Reference sections above.
 
 > **Note:** On Windows, use `python` instead of `python3` to run scripts (e.g., `python scripts/search.py` instead of `python3 scripts/search.py`).
 
@@ -130,12 +117,14 @@ python3 skills/ui-ux-pro-max/scripts/search.py "<query>" --design-system --varia
 
 ### RTL Design Support
 
-Use `--rtl` to prioritize RTL-aware recommendations (`full`, `partial`, and
-`caveats`) from `styles`, `products`, and `colors`. You can combine it with
-`--design-system`.
+Use bare `--rtl` to include all RTL-aware recommendations from `styles`,
+`products`, and `colors`. Use `--rtl=full`, `--rtl=partial`, or
+`--rtl=caveats` to select one compatibility level. You can combine either form
+with `--design-system`.
 
 ```bash
 python3 skills/ui-ux-pro-max/scripts/search.py "arabic fintech dashboard" --design-system --rtl -p "Ops Console"
+python3 skills/ui-ux-pro-max/scripts/search.py "arabic dashboard" --domain style --rtl=full
 ```
 
 When `--rtl` is enabled with `--design-system`, the output includes an explicit
@@ -167,7 +156,9 @@ python3 skills/ui-ux-pro-max/scripts/search.py "<keyword>" --domain <domain> [-n
 | Landing structure | `landing` | `--domain landing "hero social-proof"` |
 | React Native perf | `react` | `--domain react "rerender memo list"` |
 | App interface a11y | `web` | `--domain web "accessibilityLabel touch safe-areas"` |
-| AI prompt / CSS keywords | `prompt` | `--domain prompt "minimalism"` |
+| Icon suggestions | `icons` | `--domain icons "navigation arrows"` |
+| Individual Google Fonts | `google-fonts` | `--domain google-fonts "variable sans serif"` |
+| GSAP animation snippets | `gsap` | `--domain gsap "scroll reveal stagger"` |
 
 ### Step 4: Stack Guidelines
 
@@ -195,14 +186,12 @@ python3 skills/ui-ux-pro-max/scripts/search.py "<keyword>" --stack <stack>
 | `gsap` | GSAP animation skeletons by intensity tier | scroll reveal, stagger, magnetic cursor, page transition |
 | `react` | React/Next.js performance | waterfall, bundle, suspense, memo, rerender, cache |
 | `web` | App interface guidelines (iOS/Android/React Native) | accessibilityLabel, touch targets, safe areas, Dynamic Type |
-| `prompt` | AI prompts, CSS keywords | (style name) |
+| `icons` | Icon recommendations with import code | arrow, navigation, lucide, phosphor |
+| `google-fonts` | Individual Google Fonts lookup | sans serif, monospace, japanese, variable font, popular |
 
 ### Available Stacks
 
-| Stack | Focus |
-|-------|-------|
-| `react-native` | Components, Navigation, Lists |
-| `javafx` | Enterprise desktop apps, AtlantaFX themes, FXML, CSS, Controls, Binding, Threading, Packaging |
+`react`, `nextjs`, `vue`, `svelte`, `astro`, `swiftui`, `react-native`, `flutter`, `nuxtjs`, `nuxt-ui`, `html-tailwind`, `shadcn`, `jetpack-compose`, `threejs`, `angular`, `laravel`, `javafx`, `wpf`, `winui`, `avalonia`, `uno`, `uwp`
 
 **JavaFX enterprise examples:**
 

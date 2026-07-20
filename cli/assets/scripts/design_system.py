@@ -7,20 +7,23 @@ to generate comprehensive design system recommendations.
 Usage:
     from design_system import generate_design_system
     result = generate_design_system("SaaS dashboard", "My Project")
-    
+    print(result["text"])
+
     # With persistence (Master + Overrides pattern)
-    result = generate_design_system("SaaS dashboard", "My Project", persist=True)
-    result = generate_design_system("SaaS dashboard", "My Project", persist=True, page="dashboard")
+    result = generate_design_system("SaaS dashboard", "My Project", persist=True, output_dir="/path/to/project")
+    result["persistence"]  # {"status": "success"|"skipped_exists", "created_files": [...], ...}
+    result = generate_design_system("SaaS dashboard", "My Project", persist=True, page="dashboard", output_dir="/path/to/project")
 """
 
 import csv
 import json
 import os
+import re
 import sys
 import io
 from datetime import datetime
 from pathlib import Path
-from core import search, DATA_DIR
+from core import search, DATA_DIR, RTL_DOMAINS
 
 # Force UTF-8 for stdout/stderr to handle emojis/box-drawing chars on Windows (cp1252 default)
 if sys.stdout.encoding and sys.stdout.encoding.lower() != 'utf-8':
@@ -74,23 +77,24 @@ def _resolve_dial(dial_name: str, value) -> dict:
     return None
 
 
-def _build_rtl_guidelines(enabled: bool) -> dict:
+def _build_rtl_guidelines(rtl_filter) -> dict:
     """Build RTL recommendations for design-system output."""
-    if not enabled:
+    if rtl_filter is None:
         return {"enabled": False}
 
     return {
         "enabled": True,
+        "filter": rtl_filter,
         "direction": "rtl",
         "text_align": "right",
-        "layout": "Use row-reverse / column-aware ordering where needed",
-        "spacing": "Swap left/right spacing tokens (padding-right/margin-right become left counterparts)",
-        "icon_mirroring": "Mirror directional icons (arrows, chevrons, progress bars, carousels)",
+        "layout": "Use row-reverse or direction-aware ordering where needed",
+        "spacing": "Swap physical left/right spacing for logical inline-start/inline-end properties",
+        "icon_mirroring": "Mirror directional icons such as arrows, chevrons, progress bars, and carousels",
         "anti_patterns": [
-            "Left-aligned timelines/charts without mirrored axis labels",
-            "Hardcoded left/right CSS (`left`, `margin-left`, `padding-left`) for layout",
-            "Left-to-right transitions or slides without direction awareness",
-            "Icon-only directional cues without mirrored variants",
+            "Left-aligned timelines or charts without mirrored axis labels",
+            "Hardcoded left/right CSS for layout",
+            "Left-to-right transitions without direction awareness",
+            "Directional icon-only cues without mirrored variants",
         ],
     }
 
@@ -110,17 +114,18 @@ class DesignSystemGenerator:
         with open(filepath, 'r', encoding='utf-8') as f:
             return list(csv.DictReader(f))
 
-    def _multi_domain_search(self, query: str, style_priority: list = None, rtl_only: bool = False) -> dict:
+    def _multi_domain_search(self, query: str, style_priority: list = None, rtl=None) -> dict:
         """Execute searches across multiple domains."""
         results = {}
         for domain, config in SEARCH_CONFIG.items():
+            rtl_filter = rtl if domain in RTL_DOMAINS else None
             if domain == "style" and style_priority:
                 # For style, also search with priority keywords
                 priority_query = " ".join(style_priority[:2]) if style_priority else query
                 combined_query = f"{query} {priority_query}"
-                results[domain] = search(combined_query, domain, config["max_results"], rtl_only=rtl_only)
+                results[domain] = search(combined_query, domain, config["max_results"], rtl=rtl_filter)
             else:
-                results[domain] = search(query, domain, config["max_results"], rtl_only=rtl_only)
+                results[domain] = search(query, domain, config["max_results"], rtl=rtl_filter)
         return results
 
     def _find_reasoning_rule(self, category: str) -> dict:
@@ -224,7 +229,7 @@ class DesignSystemGenerator:
 
     def generate(self, query: str, project_name: str = None,
                  variance: int = None, motion: int = None, density: int = None,
-                 rtl: bool = False) -> dict:
+                 rtl=None) -> dict:
         """Generate complete design system recommendation.
 
         variance/motion/density are optional 1-10 dials (see DIAL_TIERS) that bias
@@ -236,7 +241,7 @@ class DesignSystemGenerator:
         density_info = _resolve_dial("density", density)
 
         # Step 1: First search product to get category
-        product_result = search(query, "product", 1, rtl_only=rtl)
+        product_result = search(query, "product", 1, rtl=rtl)
         product_results = product_result.get("results", [])
         category = "General"
         if product_results:
@@ -253,7 +258,7 @@ class DesignSystemGenerator:
             effective_style_priority = variance_info["style_keywords"] + style_priority
 
         # Step 3: Multi-domain search with style priority hints
-        search_results = self._multi_domain_search(query, effective_style_priority, rtl_only=rtl)
+        search_results = self._multi_domain_search(query, effective_style_priority, rtl=rtl)
         search_results["product"] = product_result  # Reuse product search
 
         # Step 4: Select best matches from each domain using priority
@@ -335,14 +340,14 @@ class DesignSystemGenerator:
             "anti_patterns": reasoning.get("anti_patterns", ""),
             "decision_rules": reasoning.get("decision_rules", {}),
             "severity": reasoning.get("severity", "MEDIUM"),
-                "dials": {
+            "dials": {
                 "variance": variance_info["value"] if variance_info else None,
                 "variance_label": variance_info["label"] if variance_info else None,
                 "motion": motion_info["value"] if motion_info else None,
                 "motion_label": motion_info["label"] if motion_info else None,
                 "density": density_info["value"] if density_info else None,
                 "density_label": density_info["label"] if density_info else None,
-                },
+            },
             "rtl": _build_rtl_guidelines(rtl),
             "motion_snippet": motion_snippet,
             "spacing_scale": density_info["spacing"] if density_info else None,
@@ -437,20 +442,22 @@ def format_ascii_box(design_system: dict) -> str:
         if dials.get("density") is not None:
             lines.append(f"│  Density:  {dials['density']}/10 — {dials['density_label']}".ljust(BOX_WIDTH) + "│")
 
-    # RTL section
     if rtl.get("enabled"):
         lines.append(section_header("RTL GUIDELINES", BOX_WIDTH + 1))
-        lines.append(f"│  Direction: {rtl.get('direction', 'rtl')}".ljust(BOX_WIDTH) + "│")
-        lines.append(f"│  Text align: {rtl.get('text_align', 'right')}".ljust(BOX_WIDTH) + "│")
-        lines.append(f"│  Layout: {rtl.get('layout', '')}".ljust(BOX_WIDTH) + "│")
-        lines.append(f"│  Spacing: {rtl.get('spacing', '')}".ljust(BOX_WIDTH) + "│")
-        lines.append(f"│  Icons: {rtl.get('icon_mirroring', '')}".ljust(BOX_WIDTH) + "│")
-        anti_items = rtl.get("anti_patterns", [])
-        if anti_items:
-            lines.append(f"│  Anti-patterns:".ljust(BOX_WIDTH) + "│")
-            for item in anti_items:
-                for line in wrap_text(f" - {item}", "│      ", BOX_WIDTH):
-                    lines.append(line.ljust(BOX_WIDTH) + "│")
+        rtl_rows = [
+            ("Filter", rtl.get("filter", "all")),
+            ("Direction", rtl.get("direction", "rtl")),
+            ("Text align", rtl.get("text_align", "right")),
+            ("Layout", rtl.get("layout", "")),
+            ("Spacing", rtl.get("spacing", "")),
+            ("Icons", rtl.get("icon_mirroring", "")),
+        ]
+        for label, value in rtl_rows:
+            for line in wrap_text(f"{label}: {value}", "│     ", BOX_WIDTH):
+                lines.append(line.ljust(BOX_WIDTH) + "│")
+        for item in rtl.get("anti_patterns", []):
+            for line in wrap_text(f"Avoid: {item}", "│     ", BOX_WIDTH):
+                lines.append(line.ljust(BOX_WIDTH) + "│")
 
     # Pattern section
     lines.append(section_header("PATTERN", BOX_WIDTH + 1))
@@ -589,19 +596,18 @@ def format_markdown(design_system: dict) -> str:
             lines.append(f"- **Density:** {dials['density']}/10 — {dials['density_label']}")
         lines.append("")
 
-    # RTL section
     if rtl.get("enabled"):
         lines.append("### RTL Guidelines")
+        lines.append(f"- **Filter:** {rtl.get('filter', 'all')}")
         lines.append(f"- **Direction:** {rtl.get('direction', 'rtl')}")
         lines.append(f"- **Text align:** {rtl.get('text_align', 'right')}")
         lines.append(f"- **Layout:** {rtl.get('layout', '')}")
         lines.append(f"- **Spacing:** {rtl.get('spacing', '')}")
         lines.append(f"- **Icons:** {rtl.get('icon_mirroring', '')}")
-        anti_patterns = rtl.get("anti_patterns", [])
-        if anti_patterns:
+        if rtl.get("anti_patterns"):
             lines.append("- **Avoid:**")
-            for anti_pattern in anti_patterns:
-                lines.append(f"  - {anti_pattern}")
+            for item in rtl["anti_patterns"]:
+                lines.append(f"  - {item}")
         lines.append("")
 
     # Pattern section
@@ -698,13 +704,8 @@ def format_markdown(design_system: dict) -> str:
     # Anti-patterns section
     if anti_patterns:
         lines.append("### Avoid (Anti-patterns)")
-        if isinstance(anti_patterns, list):
-            for anti_pattern in anti_patterns:
-                if anti_pattern:
-                    lines.append(f"- {anti_pattern}")
-        else:
-            newline_bullet = '\n- '
-            lines.append(f"- {str(anti_patterns).replace(' + ', newline_bullet)}")
+        newline_bullet = '\n- '
+        lines.append(f"- {anti_patterns.replace(' + ', newline_bullet)}")
         lines.append("")
 
     # Pre-Delivery Checklist section
@@ -725,7 +726,7 @@ def format_markdown(design_system: dict) -> str:
 def generate_design_system(query: str, project_name: str = None, output_format: str = "ascii",
                            persist: bool = False, page: str = None, output_dir: str = None,
                            variance: int = None, motion: int = None, density: int = None,
-                           rtl: bool = False) -> str:
+                           force: bool = False, rtl=None) -> dict:
     """
     Main entry point for design system generation.
 
@@ -739,10 +740,14 @@ def generate_design_system(query: str, project_name: str = None, output_format: 
         variance: Optional 1-10 DESIGN_VARIANCE dial (1=centered/minimal, 10=bold/asymmetric)
         motion: Optional 1-10 MOTION_INTENSITY dial, pulls a matching GSAP snippet from motion.csv
         density: Optional 1-10 VISUAL_DENSITY dial, overrides the spacing scale (1=spacious, 10=dense)
-        rtl: Filter search to RTL-compatible recommendations only
+        force: If True, overwrite an existing MASTER.md; otherwise persistence
+               is skipped (with a status message) when one already exists
+        rtl: Optional RTL filter: all, full, partial, or caveats
 
     Returns:
-        Formatted design system string
+        dict with keys: "text" (formatted design system string), "design_system"
+        (raw dict, useful for --json callers), and "persistence" (result of
+        persist_design_system(), or None if persist=False)
     """
     generator = DesignSystemGenerator()
     design_system = generator.generate(
@@ -754,64 +759,98 @@ def generate_design_system(query: str, project_name: str = None, output_format: 
         rtl=rtl,
     )
 
-    # Persist to files if requested
+    persistence_result = None
     if persist:
-        persist_design_system(design_system, page, output_dir, query)
+        persistence_result = persist_design_system(design_system, page, output_dir, query, force=force)
 
-    if output_format == "markdown":
-        return format_markdown(design_system)
-    return format_ascii_box(design_system)
+    text = format_markdown(design_system) if output_format == "markdown" else format_ascii_box(design_system)
+
+    return {
+        "text": text,
+        "design_system": design_system,
+        "persistence": persistence_result,
+    }
 
 
 # ============ PERSISTENCE FUNCTIONS ============
-def persist_design_system(design_system: dict, page: str = None, output_dir: str = None, page_query: str = None) -> dict:
+def safe_slug(name, fallback: str = "default") -> str:
+    """Slugify a name into a single safe path segment.
+
+    Only [a-z0-9_-] survives; every other character (including '/', '\\' and
+    '.') collapses into '-'. This makes path traversal via project/page names
+    (e.g. "../../etc") impossible — the slug can never leave its parent dir.
+    """
+    slug = re.sub(r'[^a-z0-9_-]+', '-', str(name).lower()).strip('-')
+    return slug or fallback
+
+
+def persist_design_system(design_system: dict, page: str = None, output_dir: str = None,
+                           page_query: str = None, force: bool = False) -> dict:
     """
     Persist design system to design-system/<project>/ folder using Master + Overrides pattern.
-    
+
     Args:
         design_system: The generated design system dictionary
         page: Optional page name for page-specific override file
         output_dir: Optional output directory (defaults to current working directory)
         page_query: Optional query string for intelligent page override generation
-    
+        force: If True, overwrite an existing MASTER.md. If False (default) and
+               MASTER.md already exists, persistence is skipped so prior design
+               decisions aren't silently discarded.
+
     Returns:
-        dict with created file paths and status
+        dict with created file paths and status. status is "skipped_exists" if
+        MASTER.md already existed and force was not set.
     """
     base_dir = Path(output_dir) if output_dir else Path.cwd()
-    
+
     # Use project name for project-specific folder. Coalesce falsy values
     # (missing key, explicit None, or "") so the .lower() below can't crash.
     project_name = design_system.get("project_name") or "default"
-    project_slug = project_name.lower().replace(' ', '-')
-    
+    project_slug = safe_slug(project_name)
+
     design_system_dir = base_dir / "design-system" / project_slug
     pages_dir = design_system_dir / "pages"
-    
+
+    master_file = design_system_dir / "MASTER.md"
+
+    if master_file.exists() and not force:
+        return {
+            "status": "skipped_exists",
+            "design_system_dir": str(design_system_dir),
+            "master_file": str(master_file),
+            "created_files": [],
+            "message": (
+                f"{master_file} already exists and was not modified. "
+                "Read it first to check for prior design decisions, then "
+                "re-run with force=True / --force to overwrite."
+            ),
+        }
+
     created_files = []
-    
+
     # Create directories
     design_system_dir.mkdir(parents=True, exist_ok=True)
     pages_dir.mkdir(parents=True, exist_ok=True)
-    
-    master_file = design_system_dir / "MASTER.md"
-    
+
     # Generate and write MASTER.md
     master_content = format_master_md(design_system)
     with open(master_file, 'w', encoding='utf-8') as f:
         f.write(master_content)
     created_files.append(str(master_file))
-    
+
     # If page is specified, create page override file with intelligent content
     if page:
-        page_file = pages_dir / f"{page.lower().replace(' ', '-')}.md"
+        page_file = pages_dir / f"{safe_slug(page, 'page')}.md"
         page_content = format_page_override_md(design_system, page, page_query)
         with open(page_file, 'w', encoding='utf-8') as f:
             f.write(page_content)
         created_files.append(str(page_file))
-    
+
     return {
         "status": "success",
         "design_system_dir": str(design_system_dir),
+        "master_file": str(master_file),
         "created_files": created_files
     }
 
@@ -906,17 +945,17 @@ def format_master_md(design_system: dict) -> str:
         lines.append("```")
         lines.append("")
 
-    # RTL section
     if rtl.get("enabled"):
         lines.append("### RTL Guidelines")
         lines.append("")
+        lines.append(f"- **Filter:** {rtl.get('filter', 'all')}")
         lines.append(f"- **Direction:** {rtl.get('direction', 'rtl')}")
         lines.append(f"- **Text align:** {rtl.get('text_align', 'right')}")
         lines.append(f"- **Layout:** {rtl.get('layout', '')}")
         lines.append(f"- **Spacing:** {rtl.get('spacing', '')}")
         lines.append(f"- **Icons:** {rtl.get('icon_mirroring', '')}")
-        for anti_pattern in rtl.get("anti_patterns", []):
-            lines.append(f"- ⚠️ {anti_pattern}")
+        for item in rtl.get("anti_patterns", []):
+            lines.append(f"- **Avoid:** {item}")
         lines.append("")
     
     # Spacing Variables (overridden by the VISUAL_DENSITY dial when set)
@@ -1409,4 +1448,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     result = generate_design_system(args.query, args.project_name, args.format)
-    print(result)
+    print(result["text"])

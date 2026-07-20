@@ -52,6 +52,7 @@ const AI_TO_PLATFORM: Record<string, string> = {
   kilocode: 'kilocode',
   warp: 'warp',
   augment: 'augment',
+  codewhale: 'codewhale',
 };
 
 async function exists(path: string): Promise<boolean> {
